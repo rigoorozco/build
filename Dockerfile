@@ -36,6 +36,7 @@ RUN set -ex;                                   \
         libssl-dev                             \
         cpio                                   \
         rsync                                  \
+        rpm                                    \
         gcc-aarch64-linux-gnu;                 \
     apt install -y                             \
         autoconf                               \

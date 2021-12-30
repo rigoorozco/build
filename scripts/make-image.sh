@@ -41,7 +41,13 @@ startup_checks()
 	return 1
     fi
 
-    if [ $DISTRO_VERSION == "bionic" ]; then
+    if [ $DISTRO_VERSION == "bookworm" ]; then
+	ISOURL=https://cdimage.debian.org/cdimage/daily-builds/daily/arch-latest/arm64/iso-cd/
+	ISO=debian-testing-arm64-netinst.iso
+    elif [ $DISTRO_VERSION == "impish" ]; then
+	ISOURL=http://cdimage.ubuntu.com/releases/21.10/release
+	ISO=ubuntu-21.10-live-server-arm64.iso
+    elif [ $DISTRO_VERSION == "bionic" ]; then
 	ISOURL=http://cdimage.ubuntu.com/releases/18.04/release
 	ISO=ubuntu-18.04.1-server-arm64.iso
     elif [ $DISTRO_VERSION == "cosmic" ]; then
@@ -165,31 +171,7 @@ start_ubuntu_installer()
 
     virt-install --accelerate --cdrom $ISODIR/$ISO --disk size=7,format=raw   \
 		 --name $VMNAME --os-type linux --os-variant ubuntu18.04      \
-		 --ram 2048 --arch aarch64 --noreboot # --vcpus=$(nproc)
-
-    if [ $MAKE_CLEAN_UBUNTU ]; then
-	print_red "Installing the desktop into the clean image [this will take a while]"
-	start_vm
-
-	while [ ! $USERNAME ]; do
-	    print_red "[INPUT REQUIRED] Please enter the username you used during the install"
-	    read USERNAME
-	done
-
-	print_red "Installing Ubuntu Desktop"
-	ssh -t -o LogLevel=ERROR                                        \
-	    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-	    $USERNAME@$VMIP 'sudo apt install -y ubuntu-desktop'
-
-	print_red "Saving the compressed clean image and LibVirt XML to tar archive"
-	IMAGEFILE=$CLEAN_PREBUILT_UBUNTU-$(date +%F-%H%p).tgz
-	cd $VMDIR
-	virsh dumpxml $VMNAME > $VMNAME.xml
-	xz -9 $VMNAME.img
-	tar -czf $IMAGEFILE $VMNAME.xml $VMNAME.img.xz
-	cp $IMAGEFILE $OUTDIR
-	rm $VMNAME.xml $VMNAME.img.xz
-    fi
+		 --ram 4096 --arch aarch64 --noreboot --vcpus=$(nproc)
 
     print_red "Ubuntu install was successful"
 }
@@ -211,37 +193,11 @@ install_ubuntu()
     print_red "Enabling LibVirt (requires privilege escalation)"
     start_libvirt
 
-    if [ $PREBUILT_UBUNTU ]; then
-
-	print_red "Checking for clean pre-built image"
-	URL=$PREBUILT_REPO/$CLEAN_PREBUILT_UBUNTU.tgz
-	EXISTSONLINE=$(wget -S --spider $URL 2>&1 | grep 'HTTP/1.1 200 OK' || true)
-	if [ "$EXISTSONLINE" != "" ]; then
-	    # Only download the clean Ubuntu image if a newer one is available
-	    print_red "Downloading prebuilt clean Ubuntu image"
-	    wget -N -c -P $ISODIR $PREBUILT_REPO/$CLEAN_PREBUILT_UBUNTU.tgz
-	fi
-
-	if [ ! -f $ISODIR/$CLEAN_PREBUILT_UBUNTU.tgz ]; then
-	    print_red "Failed to locate $CLEAN_PREBUILT_UBUNTU.tgz"
-	    return 1
-	fi
-
-	# Unzip the compressed clean Ubuntu image, but do not delete the input file
-	print_red "Uncompressing clean Ubuntu image"
-	tar -xf $ISODIR/$CLEAN_PREBUILT_UBUNTU.tgz
-	unxz $VMNAME.img.xz
-
-	print_red "Installing VM from existing (clean) image"
-	mv $VMNAME.img $VMDIR
-	virsh define $VMNAME.xml
-    else
 	print_red "Downloading latest Ubuntu LTS ISO ($ISO)"
 	download_lts_iso
 
 	print_red "Installing Ubuntu into a VM"
 	start_ubuntu_installer
-    fi
 }
 
 build_kernel()
@@ -265,10 +221,12 @@ build_kernel()
 	rm $SRCDIR/linux-5*
     fi
 
+    print_red "Using $(nproc) cores"
+
     ccache make                                     \
 	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
 	KBUILD_OUTPUT=$SRCDIR/build-arm64           \
-	laptops_defconfig
+	defconfig
 
     ccache make -j $(nproc)                         \
 	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
@@ -285,7 +243,25 @@ build_kernel()
 	bindeb-pkg
 
     print_red "Copying *.debs and DTB to $OUTDIR"
-    cp $SRCDIR/linux-*.deb $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/laptop*.dtb $OUTDIR
+    cp $SRCDIR/linux-*.deb $OUTDIR
+    cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-asus-novago-tp370ql.dtb $OUTDIR
+    cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-hp-envy-x2.dtb $OUTDIR
+    cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-lenovo-miix-630.dtb $OUTDIR
+    cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/sdm850-lenovo-yoga-c630.dtb $OUTDIR
+}
+
+build_fedora_rpms()
+{
+	cd $SRCDIR/linux
+
+	print_red "Using $(nproc) cores"
+
+	ccache make -j $(nproc)                     \
+	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+	KBUILD_OUTPUT=$SRCDIR/build-arm64           \
+	binrpm-pkg
+
+	cp /root/rpmbuild/RPMS/aarch64/*.rpm $OUTDIR
 }
 
 build_grub()
@@ -371,22 +347,6 @@ setup_vm()
 	read USERNAME
     done
 
-    if [ $SSHPASS ]; then
-	print_red "Copying artifacts to the VM via SCP"
-
-	sshpass -e scp -o LogLevel=ERROR                                    \
-		-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-		$SCRIPTSDIR/setup-vm.sh $USERNAME@$VMIP:/tmp
-
-	sshpass -e scp -o LogLevel=ERROR                                    \
-		-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-		$SCRIPTSDIR/grub-shim.cfg $USERNAME@$VMIP:/tmp
-
-	print_red "Running the setup script via SSH"
-	sshpass -e ssh -t -o LogLevel=ERROR                                 \
-		-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-		$USERNAME@$VMIP 'echo -e ' $SSHPASS '| sudo -S /tmp/setup-vm.sh' ${@}
-    else
 	print_red "\n[TIMEOUT WARNING] Keep an eye on this section until you've entered your password (twice)\n"
 
 	print_red "Copying artifacts to the VM via SCP (requires authentication)"
@@ -398,7 +358,6 @@ setup_vm()
 	ssh -t -o LogLevel=ERROR                                        \
 	    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 	    $USERNAME@$VMIP 'sudo /tmp/setup-vm.sh' ${@}
-    fi
 
     print_red "Pulling the plug from the VM"
     virsh destroy $VMNAME
@@ -411,7 +370,7 @@ if [ $# -lt 1 ]; then
     usage
 fi
 
-GETOPT=`getopt -o f --long install-ubuntu,install-ubuntu-from-prebuilt,build-kernel,build-grub,setup-vm,setup-vm-from-prebuilt,make-clean-prebuilt-ubuntu -- "$@"`
+GETOPT=`getopt -o f --long install-ubuntu,install-ubuntu-from-prebuilt,build-kernel,build-grub,setup-vm,setup-vm-from-prebuilt,make-clean-prebuilt-ubuntu,build-fedora-rpms -- "$@"`
 eval set -- "$GETOPT"
 
 COUNTARG=0
@@ -424,17 +383,16 @@ while true; do
 	    COUNTARG=$((COUNTARG+1))
 	    shift
 	    ;;
-	--install-ubuntu-from-prebuilt)
-	    INSTALL_UBUNTU=true
-	    PREBUILT_UBUNTU=true
-	    COUNTARG=$((COUNTARG+1))
-	    shift
-	    ;;
 	--build-kernel)
 	    BUILD_KERNEL=true
 	    COUNTARG=$((COUNTARG+1))
 	    shift
 	    ;;
+	--build-fedora-rpms)
+		BUILD_FEDORA_RPMS=true
+		COUNTARG=$((COUNTARG+1))
+		shift
+		;;
 	--build-grub)
 	    BUILD_GRUB=true
 	    COUNTARG=$((COUNTARG+1))
@@ -443,18 +401,6 @@ while true; do
 	--setup-vm)
 	    SETUP_VM=true
 	    COUNTARG=$((COUNTARG+1))
-	    shift
-	    ;;
-	--setup-vm-from-prebuilt)
-	    SETUP_VM=true
-	    USERNAME=ubuntu
-	    export SSHPASS=ubuntu # Needs to be exported for `sshpass`
-	    COUNTARG=$((COUNTARG+1))
-	    shift
-	    ;;
-# Options
-	--make-clean-prebuilt-ubuntu)
-	    MAKE_CLEAN_UBUNTU=true
 	    shift
 	    ;;
 	-f)
@@ -482,12 +428,6 @@ if [ $COUNTARG -gt 2 ]; then
     exit 1
 fi
 
-if [ $MAKE_CLEAN_UBUNTU ] && [ ! $INSTALL_UBUNTU ]; then
-    print_red "--make-clean-prebuilt-ubuntu doesn't make sense without --install-ubuntu"
-    usage
-    exit 1
-fi
-
 if [ $INSTALL_UBUNTU ]; then
     print_red "Installing Ubuntu into a VM"
     install_ubuntu
@@ -497,6 +437,12 @@ fi
 if [ $BUILD_KERNEL ]; then
     print_red "Building the Linux Kernel"
     build_kernel
+    exit 0
+fi
+
+if [ $BUILD_FEDORA_RPMS ]; then
+    print_red "Building Fedora Kernel RPMs"
+    build_fedora_rpms
     exit 0
 fi
 

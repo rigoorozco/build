@@ -24,19 +24,19 @@ while [ $# -gt 0 ]; do
     case $1 in
         asus-tp370ql)
             NAME="ASUS TP370QL"
-            DTB=laptop-asus-tp370ql.dtb
+            DTB=msm8998-asus-novago-tp370ql.dtb
             ;;
         hp-envy-x2)
             NAME="HP Envy X2"
-            DTB=laptop-hp-envy-x2.dtb
+            DTB=msm8998-hp-envy-x2.dtb
             ;;
         lenovo-miix-630)
             NAME="Lenovo Miix 630"
-            DTB=laptop-lenovo-miix-630.dtb
+            DTB=msm8998-lenovo-miix-630.dtb
             ;;
         lenovo-yoga-c630)
             NAME="Lenovo Yoga C630"
-            DTB=laptop-lenovo-yoga-c630.dtb
+            DTB=sdm850-lenovo-yoga-c630.dtb
             ;;
         generic)
             NAME="Generic"
@@ -133,8 +133,8 @@ cp grub-shim.cfg $EFIBOOTDIR/grub.cfg
 UUID=$(lsblk -o UUID /dev/sda2 | sed '/UUID/d')
 sed -i "s/\[REPLACE_UUID\]/$UUID/" $EFIBOOTDIR/grub.cfg
 
-print_green "Installing the Ubuntu Desktop"
-apt install -y ubuntu-desktop
+# print_green "Installing the Ubuntu Desktop"
+# apt install -y ubuntu-desktop
 
 print_green "Shutting down the VM"
 poweroff &

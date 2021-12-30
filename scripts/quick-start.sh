@@ -34,8 +34,14 @@ while [ $# -gt 0 ]; do
         grub)
             BUILD_GRUB=true
             ;;
-        createclean)
-            BUILD_CLEAN_IMAGE=true
+        install-ubuntu)
+            INSTALL_UBUNTU=true
+            ;;
+        setup-vm)
+            SETUP_VM=true
+            ;;
+        rpms)
+            BUILD_RPMS=true
             ;;
 	-f|--force)
 	    EXTRAARGS="$EXTRAARGS -f"
@@ -72,7 +78,7 @@ startup_checks
 
 print_blue "Create the containerised build environment (~5 mins)"
 print_blue " Containerised Ubuntu to be fully updated with all prerequisite packages installed"
-docker build -t aarch64-laptops-build-env:0.1 .
+# docker build -t aarch64-laptops-build-env:0.1 .
 
 if [ $BUILD_KERNEL ]; then
     print_blue "Building the Linux kernel (~35 mins)"
@@ -90,27 +96,43 @@ if [ $BUILD_GRUB ]; then
     exit 0
 fi
 
-if [ $BUILD_CLEAN_IMAGE ]; then
-   print_blue "Building a clean pre-built image for faster future runs"
-   print_blue " Ubuntu installed in a VM (using LibVirt)"
-   docker run -ti --privileged --name aarch64-laptops-ubuntu-vm                               \
+if [ $INSTALL_UBUNTU ]; then
+    print_blue " Ubuntu installed in a VM (using LibVirt)"
+    docker run -ti --privileged --name aarch64-laptops-ubuntu-vm                               \
 	  -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
-	  aarch64-laptops-build-env:0.1 /scripts/make-image.sh --make-clean-prebuilt-ubuntu --install-ubuntu ${EXTRAARGS}
+	  aarch64-laptops-build-env:0.1 /scripts/make-image.sh --install-ubuntu ${EXTRAARGS}
+    print_blue "Saving the aarch64-laptops-ubuntu-vm container as an image"
+    docker commit aarch64-laptops-ubuntu-vm aarch64-laptops-ubuntu-vm:0.1
 fi
 
-print_blue "Build the basic SD card image - requires user input (~2 hours manual : ~5 mins prebuilt)"
-print_blue " Ubuntu installed in a VM (using LibVirt)"
-docker run -ti --privileged --name aarch64-laptops-ubuntu-vm                               \
-	-v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
-	aarch64-laptops-build-env:0.1 /scripts/make-image.sh --install-ubuntu-from-prebuilt ${EXTRAARGS}
+if [ $SETUP_VM ]; then
+    print_blue "Setting up VM (~2.5 hours - manual : 30 mins - prebuilt)"
+    docker run -ti --rm --privileged --name aarch64-laptops-ubuntu-vm-setup                    \
+           -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
+           aarch64-laptops-ubuntu-vm:0.1 /scripts/make-image.sh --setup-vm ${DEVICE}
+fi
 
-print_blue "Saving the aarch64-laptops-ubuntu-vm container as an image"
-docker commit aarch64-laptops-ubuntu-vm aarch64-laptops-ubuntu-vm:0.1
-
-print_blue "Cleaning up the no longer required aarch64-laptops-ubuntu-vm container"
-docker rm aarch64-laptops-ubuntu-vm
-
-print_blue "Setting up VM (~2.5 hours - manual : 30 mins - prebuilt)"
-docker run -ti --rm --privileged --name aarch64-laptops-ubuntu-vm-setup                    \
+if [ $BUILD_RPMS ]; then
+    print_blue "Building the Linux kernel RPMs (~35 mins)"
+    docker run -ti --rm --name aarch64-laptops-kernel                                          \
        -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
-       aarch64-laptops-ubuntu-vm:0.1 /scripts/make-image.sh --setup-vm-from-prebuilt ${DEVICE} ${EXTRAARGS}
+       aarch64-laptops-build-env:0.1 /scripts/make-image.sh --build-fedora-rpms ${EXTRAARGS}
+    exit 0
+fi
+
+# print_blue "Build the basic SD card image - requires user input (~2 hours manual : ~5 mins prebuilt)"
+# print_blue " Ubuntu installed in a VM (using LibVirt)"
+# docker run -ti --privileged --name aarch64-laptops-ubuntu-vm                               \
+# 	-v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
+# 	aarch64-laptops-build-env:0.1 /scripts/make-image.sh --install-ubuntu-from-prebuilt ${EXTRAARGS}
+
+# print_blue "Saving the aarch64-laptops-ubuntu-vm container as an image"
+# docker commit aarch64-laptops-ubuntu-vm aarch64-laptops-ubuntu-vm:0.1
+
+# print_blue "Cleaning up the no longer required aarch64-laptops-ubuntu-vm container"
+# docker rm aarch64-laptops-ubuntu-vm
+
+# print_blue "Setting up VM (~2.5 hours - manual : 30 mins - prebuilt)"
+# docker run -ti --rm --privileged --name aarch64-laptops-ubuntu-vm-setup                    \
+#        -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
+#        aarch64-laptops-ubuntu-vm:0.1 /scripts/make-image.sh --setup-vm-from-prebuilt ${DEVICE} ${EXTRAARGS}
