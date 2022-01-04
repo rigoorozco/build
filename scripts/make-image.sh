@@ -223,7 +223,7 @@ build_kernel()
 
     print_red "Using $(nproc) cores"
 
-    ccache make                                     \
+    ccache make -j $(nproc)                         \
 	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
 	KBUILD_OUTPUT=$SRCDIR/build-arm64           \
 	defconfig
@@ -248,6 +248,25 @@ build_kernel()
     cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-hp-envy-x2.dtb $OUTDIR
     cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-lenovo-miix-630.dtb $OUTDIR
     cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/sdm850-lenovo-yoga-c630.dtb $OUTDIR
+}
+
+build_dtbs()
+{
+	cd $SRCDIR/linux
+
+	print_red "Using $(nproc) cores"
+
+	ccache make -j $(nproc)                         \
+	ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+	KBUILD_OUTPUT=$SRCDIR/build-arm64           \
+	dtbs
+
+	print_red "Copying *.debs and DTB to $OUTDIR"
+	cp $SRCDIR/linux-*.deb $OUTDIR
+	cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-asus-novago-tp370ql.dtb $OUTDIR
+	cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-hp-envy-x2.dtb $OUTDIR
+	cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/msm8998-lenovo-miix-630.dtb $OUTDIR
+	cp $SRCDIR/build-arm64/arch/arm64/boot/dts/qcom/sdm850-lenovo-yoga-c630.dtb $OUTDIR
 }
 
 build_fedora_rpms()
@@ -370,7 +389,7 @@ if [ $# -lt 1 ]; then
     usage
 fi
 
-GETOPT=`getopt -o f --long install-ubuntu,install-ubuntu-from-prebuilt,build-kernel,build-grub,setup-vm,setup-vm-from-prebuilt,make-clean-prebuilt-ubuntu,build-fedora-rpms -- "$@"`
+GETOPT=`getopt -o f --long install-ubuntu,install-ubuntu-from-prebuilt,build-kernel,build-grub,build-dtbs,setup-vm,setup-vm-from-prebuilt,make-clean-prebuilt-ubuntu,build-fedora-rpms -- "$@"`
 eval set -- "$GETOPT"
 
 COUNTARG=0
@@ -398,6 +417,11 @@ while true; do
 	    COUNTARG=$((COUNTARG+1))
 	    shift
 	    ;;
+	--build-dtbs)
+		BUILD_DTBS=true
+		COUNTARG=$((COUNTARG+1))
+		shift
+		;;
 	--setup-vm)
 	    SETUP_VM=true
 	    COUNTARG=$((COUNTARG+1))
@@ -449,6 +473,12 @@ fi
 if [ $BUILD_GRUB ]; then
     print_red "Building the Grub bootloader"
     build_grub
+    exit 0
+fi
+
+if [ $BUILD_DTBS ]; then
+    print_red "Building the DTBs"
+    build_dtbs
     exit 0
 fi
 

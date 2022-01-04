@@ -43,6 +43,9 @@ while [ $# -gt 0 ]; do
         rpms)
             BUILD_RPMS=true
             ;;
+        dtbs)
+            BUILD_DTBS=true
+            ;;
 	-f|--force)
 	    EXTRAARGS="$EXTRAARGS -f"
 	    ;;
@@ -117,6 +120,14 @@ if [ $BUILD_RPMS ]; then
     docker run -ti --rm --name aarch64-laptops-kernel                                          \
        -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
        aarch64-laptops-build-env:0.1 /scripts/make-image.sh --build-fedora-rpms ${EXTRAARGS}
+    exit 0
+fi
+
+if [ $BUILD_DTBS ]; then
+    print_blue "Building the Linux kernel DTBs (~35 mins)"
+    docker run -ti --rm --name aarch64-laptops-kernel                                          \
+       -v $PWD/isos:/isos -v $PWD/output:/output -v $PWD/scripts:/scripts -v $PWD/src:/src \
+       aarch64-laptops-build-env:0.1 /scripts/make-image.sh --build-dtbs ${EXTRAARGS}
     exit 0
 fi
 
